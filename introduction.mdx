@@ -1,0 +1,75 @@
+---
+title: "grdpwasm: Browser-native Windows Remote Desktop via Go WASM"
+description: "Learn what grdpwasm is, how its three-tier architecture works, and what you need before running your first remote desktop session in the browser."
+---
+
+grdpwasm is an open-source, plugin-free Remote Desktop Protocol client that runs the complete [grdp](https://github.com/nakagami/grdp) protocol stack compiled to WebAssembly inside your browser. This page explains what the project does, how its components fit together, and what you need before following the [Quickstart](/quickstart).
+
+## What is grdpwasm
+
+grdpwasm lets you connect to a Windows Remote Desktop server (or any RDP-compatible host) directly from a browser tab. There are no browser extensions, no native installers, and no server-side screen capture — the entire RDP client lives in a `.wasm` binary that the browser downloads and runs.
+
+The project is built on two Go packages:
+
+- **[grdp](https://github.com/nakagami/grdp)** — a pure-Go RDP implementation that handles the protocol, bitmap decoding, H.264, and audio.
+- **grdpwasm** — the WASM wrapper that exposes `grdp` to JavaScript and pairs it with a lightweight proxy server.
+
+## Architecture overview
+
+Browsers cannot open raw TCP sockets, so grdpwasm uses a three-tier design:
+
+```
+Browser (WASM) ──WebSocket──► proxy (Go) ──TCP──► RDP Server
+```
+
+| Tier | What it does |
+|---|---|
+| **Browser (WASM)** | Runs the full RDP stack. Renders bitmaps to a `<canvas>`, decodes H.264 via WebCodecs, plays audio via Web Audio API, forwards keyboard and mouse events. |
+| **Proxy (Go)** | Accepts WebSocket connections from the browser, dials the RDP server over TCP, and pipes bytes in both directions. Also serves the static WASM files. |
+| **RDP server** | Any Windows host or RDP-compatible server reachable by the machine running the proxy. |
+
+The proxy is necessary because the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) is the only way browsers can open a persistent, bidirectional byte stream to an arbitrary host. The proxy upgrades that WebSocket connection and forwards it as a plain TCP connection to the RDP port (default 3389).
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="WebAssembly-powered RDP stack" icon="microchip">
+    The complete RDP protocol — negotiation, authentication, bitmap updates, and input — runs inside the browser as a Go WASM binary. No server-side rendering required.
+  </Card>
+  <Card title="Lightweight Go proxy" icon="arrows-left-right">
+    A single-binary WebSocket-to-TCP bridge. It also serves the static files, so one process is all you need to run.
+  </Card>
+  <Card title="H.264 hardware decoding" icon="film">
+    When the browser supports the WebCodecs API, H.264 frames from the RDP server are decoded by the GPU. The status bar shows which mode is active.
+  </Card>
+  <Card title="Remote audio via Web Audio API" icon="volume-high">
+    RDPSND audio is streamed from the RDP server and played through the browser's Web Audio API (PCM 44100 Hz, stereo, 16-bit signed little-endian).
+  </Card>
+  <Card title="Full keyboard mapping" icon="keyboard">
+    All standard keys are translated to RDP scan codes and forwarded to the remote desktop. Special keys and modifier combinations are supported.
+  </Card>
+  <Card title="Full mouse support" icon="computer-mouse">
+    Mouse move, left/middle/right button clicks, and scroll wheel events are all forwarded to the remote session.
+  </Card>
+  <Card title="Cookie-based session persistence" icon="cookie">
+    The connection form saves Host, Port, and Domain in browser cookies (one-year expiry), so your last-used values are pre-filled on the next visit.
+  </Card>
+</CardGroup>
+
+## Requirements
+
+Before you start, make sure you have the following:
+
+| Requirement | Details |
+|---|---|
+| **Go 1.24 or later** | Required to build the WASM binary and proxy server. |
+| **Reachable RDP server** | A Windows host or any RDP-compatible machine the proxy can reach over TCP. |
+| **Modern browser** | WebAssembly support is required. WebCodecs is optional but recommended for H.264 hardware decoding (Chromium 94+, Edge 94+). |
+
+<Note>
+  The proxy accepts connections from any origin by default. Run it only on a trusted network, or place it behind a TLS-terminating reverse proxy (such as nginx or Caddy) before exposing it to the internet.
+</Note>
+
+## Next step
+
+Follow the [Quickstart](/quickstart) to clone the repository, build the project, and open your first remote desktop session in under five minutes.

@@ -1,0 +1,278 @@
+---
+title: "grdpwasm JavaScript API: WASM functions and callbacks"
+description: "Every global function the WASM binary registers on window at startup, and every callback your page must define so the WASM module can deliver RDP events."
+---
+
+When the WASM binary starts it registers a set of global functions on `window` using `js.Global().Set(...)`. Your HTML page calls these functions to drive the RDP session. In the other direction, the WASM module calls functions that your page must define — these are the callbacks. Both sides must be present before `rdpConnect` is called.
+
+## Functions — called by your JavaScript
+
+### `rdpConnect`
+
+Opens a new RDP session. The connection is established asynchronously in a Go goroutine; `rdpOnReady` is called when the desktop is ready.
+
+```js
+rdpConnect(proxyWsURL, host, port, domain, user, password, width, height)
+```
+
+<ParamField path="proxyWsURL" type="string" required>
+  WebSocket base URL of the proxy server, without a trailing slash. Example: `ws://localhost:8080`. The WASM module appends `/ws?target=<host>:<port>` automatically.
+</ParamField>
+
+<ParamField path="host" type="string" required>
+  Hostname or IP address of the RDP server. Example: `"192.168.1.10"`.
+</ParamField>
+
+<ParamField path="port" type="string" required>
+  RDP port as a string. The standard RDP port is `"3389"`.
+</ParamField>
+
+<ParamField path="domain" type="string" required>
+  Windows domain name. Pass an empty string `""` for local accounts.
+</ParamField>
+
+<ParamField path="user" type="string" required>
+  Username for the RDP session.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  Password for the RDP session.
+</ParamField>
+
+<ParamField path="width" type="number" required>
+  Requested desktop width in pixels. The canvas is resized to this value.
+</ParamField>
+
+<ParamField path="height" type="number" required>
+  Requested desktop height in pixels. The canvas is resized to this value.
+</ParamField>
+
+Returns `null`. If fewer than 8 arguments are provided, returns an error string describing the required signature.
+
+---
+
+### `rdpDisconnect`
+
+Closes the current RDP session. Safe to call when no session is active.
+
+```js
+rdpDisconnect()
+```
+
+No parameters. No return value.
+
+---
+
+### `rdpMouseMove`
+
+Sends a pointer-move event to the remote desktop.
+
+```js
+rdpMouseMove(x, y)
+```
+
+<ParamField path="x" type="number" required>
+  X coordinate in pixels, relative to the top-left corner of the canvas.
+</ParamField>
+
+<ParamField path="y" type="number" required>
+  Y coordinate in pixels, relative to the top-left corner of the canvas.
+</ParamField>
+
+---
+
+### `rdpMouseDown`
+
+Sends a mouse button press to the remote desktop.
+
+```js
+rdpMouseDown(button, x, y)
+```
+
+<ParamField path="button" type="number" required>
+  Button index matching `MouseEvent.button`: `0` = left, `1` = middle, `2` = right.
+</ParamField>
+
+<ParamField path="x" type="number" required>
+  X coordinate relative to the canvas.
+</ParamField>
+
+<ParamField path="y" type="number" required>
+  Y coordinate relative to the canvas.
+</ParamField>
+
+---
+
+### `rdpMouseUp`
+
+Sends a mouse button release to the remote desktop. Parameters are identical to `rdpMouseDown`.
+
+```js
+rdpMouseUp(button, x, y)
+```
+
+<ParamField path="button" type="number" required>
+  Button index: `0` = left, `1` = middle, `2` = right.
+</ParamField>
+
+<ParamField path="x" type="number" required>
+  X coordinate relative to the canvas.
+</ParamField>
+
+<ParamField path="y" type="number" required>
+  Y coordinate relative to the canvas.
+</ParamField>
+
+---
+
+### `rdpMouseWheel`
+
+Sends a scroll event to the remote desktop.
+
+```js
+rdpMouseWheel(delta)
+```
+
+<ParamField path="delta" type="number" required>
+  Scroll amount. Positive values scroll up; negative values scroll down. The bundled `index.html` passes `-Math.sign(e.deltaY) * 3`.
+</ParamField>
+
+---
+
+### `rdpKeyDown`
+
+Sends a key-press scan code to the remote desktop. The `code` string is looked up in the internal keymap (see the [keyboard mapping reference](/reference/keyboard-mapping)). Unknown codes are silently dropped.
+
+```js
+rdpKeyDown(code)
+```
+
+<ParamField path="code" type="string" required>
+  The `KeyboardEvent.code` value from the browser event. Examples: `"KeyA"`, `"Enter"`, `"ArrowUp"`, `"F5"`.
+</ParamField>
+
+---
+
+### `rdpKeyUp`
+
+Sends a key-release scan code to the remote desktop. Behavior and parameters identical to `rdpKeyDown`.
+
+```js
+rdpKeyUp(code)
+```
+
+<ParamField path="code" type="string" required>
+  The `KeyboardEvent.code` value from the browser event.
+</ParamField>
+
+---
+
+## Callbacks — defined in your JavaScript, called by WASM
+
+Your page must define these functions as globals before `rdpConnect` is called. The bundled `index.html` provides a reference implementation for all of them.
+
+### `rdpOnReady()`
+
+Called when the RDP session is fully established and the remote desktop is ready to receive input. The canvas will already be sized to the requested `width` × `height`.
+
+```js
+function rdpOnReady() {
+  console.log("RDP session ready");
+}
+```
+
+---
+
+### `rdpOnError(msg)`
+
+Called when a connection or protocol error occurs.
+
+```js
+function rdpOnError(msg) {
+  console.error("RDP error:", msg);
+}
+```
+
+<ParamField path="msg" type="string">
+  Human-readable error message from the Go RDP client.
+</ParamField>
+
+---
+
+### `rdpOnClose()`
+
+Called when the RDP connection closes gracefully (the server ended the session or `rdpDisconnect` was called).
+
+```js
+function rdpOnClose() {
+  console.log("RDP connection closed");
+}
+```
+
+---
+
+### `rdpOnH264(destX, destY, w, h, isKey, uint8Data)`
+
+Called for each H.264-encoded video frame arriving from the RDP server. Your page is responsible for decoding the NAL unit data (e.g., using the WebCodecs `VideoDecoder`) and drawing it onto the canvas.
+
+<Note>
+  `rdpOnH264` is only called when the RDP server sends H.264-encoded frames and the browser's JavaScript sets up a `VideoDecoder`. If your page does not define `rdpOnH264`, or if the RDP server does not use H.264, the WASM module falls back to bitmap rendering entirely inside Go — `OnBitmap` composites rectangles into an `ImageData` and calls `putImageData` on the canvas without any JS callback.
+</Note>
+
+```js
+function rdpOnH264(destX, destY, w, h, isKey, uint8Data) {
+  // Feed uint8Data to a WebCodecs VideoDecoder
+}
+```
+
+<ParamField path="destX" type="number">
+  Destination X position on the canvas where this frame should be drawn.
+</ParamField>
+
+<ParamField path="destY" type="number">
+  Destination Y position on the canvas where this frame should be drawn.
+</ParamField>
+
+<ParamField path="w" type="number">
+  Frame width in pixels.
+</ParamField>
+
+<ParamField path="h" type="number">
+  Frame height in pixels.
+</ParamField>
+
+<ParamField path="isKey" type="boolean">
+  `true` if this is a keyframe (IDR); `false` for a delta frame. Pass as `type: isKey ? 'key' : 'delta'` to `EncodedVideoChunk`.
+</ParamField>
+
+<ParamField path="uint8Data" type="Uint8Array">
+  Raw H.264 NAL unit bytes for this frame.
+</ParamField>
+
+---
+
+### `rdpAudioPlay(sampleRate, channels, bitsPerSample, uint8Data)`
+
+Called for each audio chunk received from the RDPSND virtual channel.
+
+```js
+function rdpAudioPlay(sampleRate, channels, bitsPerSample, uint8Data) {
+  // Decode PCM and schedule playback via AudioContext
+}
+```
+
+<ParamField path="sampleRate" type="number">
+  Sample rate in Hz, e.g. `44100` or `22050`.
+</ParamField>
+
+<ParamField path="channels" type="number">
+  Number of audio channels, e.g. `1` (mono) or `2` (stereo).
+</ParamField>
+
+<ParamField path="bitsPerSample" type="number">
+  Bit depth of the PCM data: `8` or `16`.
+</ParamField>
+
+<ParamField path="uint8Data" type="Uint8Array">
+  Raw interleaved PCM bytes. For 16-bit audio, interpret as little-endian `Int16Array`. Samples are interleaved by channel: `[ch0s0, ch1s0, ch0s1, ch1s1, …]`.
+</ParamField>

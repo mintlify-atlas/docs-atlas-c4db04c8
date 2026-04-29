@@ -1,0 +1,95 @@
+---
+title: "Build grdpwasm from source using the Makefile targets"
+description: "Compile the grdpwasm WASM binary and proxy server from source. Covers all Makefile targets, expected build outputs, and how to rebuild just one artifact."
+---
+
+grdpwasm ships a simple Makefile that handles every build step: copying the Go runtime JavaScript file, compiling the WASM binary, and building the proxy server. All three artifacts must be present before you can run the application.
+
+## Prerequisites
+
+- **Go 1.24 or later** — the WASM target requires a recent toolchain. Run `go version` to check.
+- **Git** — to clone the repository.
+
+```bash
+git clone https://github.com/nakagami/grdpwasm.git
+cd grdpwasm
+```
+
+## Makefile targets
+
+| Target | What it does |
+|---|---|
+| `make all` | Runs `wasm_exec`, `wasm`, and `proxy` in order — builds everything |
+| `make wasm` | Compiles `static/main.wasm` with `GOOS=js GOARCH=wasm` |
+| `make proxy` | Compiles `proxy/proxy` for your host OS |
+| `make wasm_exec` | Copies `wasm_exec.js` from the active Go toolchain into `static/` |
+| `make clean` | Removes `static/main.wasm`, `static/wasm_exec.js`, and `proxy/proxy` |
+| `make serve` | Builds everything, then starts the proxy on `:8080` |
+
+## Full build
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/nakagami/grdpwasm.git
+    cd grdpwasm
+    ```
+  </Step>
+  <Step title="Build all artifacts">
+    ```bash
+    make all
+    ```
+    This runs the three sub-targets in the correct order: `wasm_exec` → `wasm` → `proxy`.
+  </Step>
+  <Step title="Verify the output">
+    Confirm the three expected files exist:
+
+    ```bash
+    ls -lh static/main.wasm static/wasm_exec.js proxy/proxy
+    ```
+  </Step>
+</Steps>
+
+## Build output
+
+| File | Description |
+|---|---|
+| `static/main.wasm` | Go WASM binary — loaded and executed by the browser |
+| `static/wasm_exec.js` | Go runtime JavaScript support file — bootstraps the WASM module |
+| `proxy/proxy` | WebSocket-to-TCP proxy binary — serves static files and bridges browser to RDP server |
+
+## Individual build commands
+
+When you change only one component, you can rebuild just that artifact instead of running `make all`.
+
+**WASM binary only:**
+
+```bash
+make wasm
+# equivalent to:
+GOOS=js GOARCH=wasm go build -o static/main.wasm .
+```
+
+**Proxy only:**
+
+```bash
+make proxy
+# equivalent to:
+go build -o proxy/proxy ./proxy
+```
+
+**Refresh `wasm_exec.js` only:**
+
+```bash
+make wasm_exec
+```
+
+## Notes
+
+<Note>
+The WASM binary is compiled with `GOOS=js GOARCH=wasm`. It runs exclusively in a browser — you cannot execute `static/main.wasm` directly on the command line.
+</Note>
+
+<Note>
+`wasm_exec.js` must come from the same Go toolchain version that compiled `static/main.wasm`. If you upgrade Go, run `make wasm_exec` alongside `make wasm` to keep them in sync. Mismatched versions will cause the WASM module to fail to load.
+</Note>

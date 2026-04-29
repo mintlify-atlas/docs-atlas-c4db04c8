@@ -1,81 +1,118 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
-icon: 'rocket'
+title: "Quickstart: build and run grdpwasm in five minutes"
+description: "Clone the repository, build the WASM binary and proxy server with a single command, and connect to a remote Windows desktop from your browser."
 ---
 
-## Get started in three steps
+This guide walks you through every step from a fresh checkout to a live remote desktop session in your browser. The whole process takes about five minutes on a machine with Go 1.24 or later already installed.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you start, make sure you have the following:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+- **Go 1.24 or later** — run `go version` to check.
+- **Git** — to clone the repository.
+- **A reachable RDP server** — a Windows host or any RDP-compatible machine accessible from the machine where you will run the proxy.
+- **A modern browser** — any browser with WebAssembly support. For hardware-accelerated H.264 decoding, use Chromium 94+, Edge 94+, or a browser that supports the WebCodecs API.
 
-### Step 2: Deploy your changes
+## Steps
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+<Steps>
+  <Step title="Clone the repository">
+    Clone the grdpwasm repository and enter the project directory:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash
+    git clone https://github.com/nakagami/grdpwasm.git && cd grdpwasm
+    ```
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Build everything">
+    Run the default make target to compile all three output artifacts:
 
-### Step 3: Go live
+    ```bash
+    make all
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    `make all` produces:
+
+    | Output | Description |
+    |---|---|
+    | `static/main.wasm` | Go WASM binary — the full RDP client, runs in the browser. |
+    | `static/wasm_exec.js` | Go runtime JavaScript support file, copied from your local Go toolchain. |
+    | `proxy/proxy` | WebSocket-to-TCP proxy binary and static file server. |
+
+    <Tip>
+      To rebuild individual artifacts, use `make wasm`, `make proxy`, or `make wasm_exec` separately.
+    </Tip>
+  </Step>
+
+  <Step title="Start the proxy">
+    Start the proxy server, which also serves the static WASM files:
+
+    ```bash
+    ./proxy/proxy -listen :8080 -static static
+    ```
+
+    Alternatively, run:
+
+    ```bash
+    make serve
+    ```
+
+    Both commands do the same thing. The proxy listens on port 8080, serves `static/` as the web root, and handles WebSocket upgrade requests at `/ws`.
+
+    | Flag | Default | Description |
+    |---|---|---|
+    | `-listen` | `:8080` | Address and port to listen on. |
+    | `-static` | `static` | Directory to serve static files from. |
+  </Step>
+
+  <Step title="Open the browser">
+    Navigate to [http://localhost:8080](http://localhost:8080) in your browser.
+
+    The page loads the WASM binary and shows **Ready** in the status bar once the module is initialised. If you see **WASM load failed**, check that `static/main.wasm` and `static/wasm_exec.js` both exist.
+  </Step>
+
+  <Step title="Connect to a remote desktop">
+    Fill in the connection form in the toolbar:
+
+    | Field | Description |
+    |---|---|
+    | **Host** | Hostname or IP address of the RDP server. |
+    | **Port** | RDP port — default `3389`. |
+    | **Domain** | Windows domain name. Leave blank for local accounts. |
+    | **User** | Username on the remote machine. |
+    | **Password** | Password for the account. |
+    | **Width / Height** | Initial desktop resolution in pixels (e.g. `1280` × `800`). |
+
+    Click **Connect**. The status bar shows `Connecting…` and then `Connected` (or `Connected (WebCodecs H.264)` if your browser supports the WebCodecs API).
+  </Step>
+</Steps>
+
+## What you should see
+
+Once connected, the remote desktop appears in the canvas area below the toolbar. You can interact with it immediately using your mouse. The **Connect** button changes to **Disconnect** — click it to end the session cleanly.
+
+## Usage notes
+
+<Note>
+  **Keyboard focus:** If keystrokes stop reaching the remote desktop, click directly on the canvas to recapture keyboard focus. The browser tab must be active and the canvas element must have focus for key events to be forwarded.
+</Note>
+
+<Note>
+  **Remote audio:** Audio from the remote session is streamed via RDPSND and played through the browser's Web Audio API (PCM 44100 Hz, stereo, 16-bit). Audio starts automatically when you click **Connect** — the click gesture is required to satisfy the browser's autoplay policy.
+</Note>
+
+<Note>
+  **H.264 hardware decoding:** If your browser supports the WebCodecs API, H.264 frames are decoded by the GPU. The status bar shows `Connected (WebCodecs H.264)` when hardware decoding is active, or `Connected` when falling back to software bitmap rendering. Both modes produce a correct remote desktop; WebCodecs is faster for video-heavy workloads.
+</Note>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Running the proxy" icon="server" href="/guides/running-the-proxy">
+    Proxy flags, TLS termination, and how to expose grdpwasm over the internet safely.
+  </Card>
+  <Card title="Introduction" icon="book-open" href="/introduction">
+    Architecture overview, feature list, and requirements in detail.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

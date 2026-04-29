@@ -1,0 +1,89 @@
+---
+title: "Connecting to a remote Windows desktop with grdpwasm"
+description: "Fill in the connection form, understand session persistence, and use keyboard, mouse, audio, and H.264 decoding during an active RDP session."
+---
+
+Once the proxy is running and you have opened `http://localhost:8080` in a browser, you will see a toolbar at the top of the page with a connection form and a canvas area below it where the remote desktop will appear.
+
+## Connection form fields
+
+| Field | Description | Default |
+|---|---|---|
+| **Host** | Hostname or IP address of the RDP server | `localhost` |
+| **Port** | TCP port the RDP server listens on | `3389` |
+| **Domain** | Windows domain name — leave blank for local accounts | *(empty)* |
+| **User** | Username to authenticate with | *(empty)* |
+| **Password** | Password for the account | *(empty)* |
+| **Width** | Initial desktop width in pixels | `1280` |
+| **Height** | Initial desktop height in pixels | `800` |
+
+## Connecting and disconnecting
+
+<Steps>
+  <Step title="Fill in the connection form">
+    Enter at minimum the **Host**, **User**, and **Password**. Leave **Domain** blank unless you are connecting to a domain-joined Windows machine.
+  </Step>
+  <Step title="Click Connect">
+    The button turns green and its label changes to **Disconnect** once the session is established. The status bar in the toolbar shows the current state throughout the process.
+  </Step>
+  <Step title="Interact with the remote desktop">
+    The remote desktop renders in the canvas below the toolbar. Click inside the canvas to give it keyboard focus.
+  </Step>
+  <Step title="End the session">
+    Click **Disconnect** to close the RDP session. The button returns to red and is relabelled **Connect**.
+  </Step>
+</Steps>
+
+## Status bar messages
+
+The status text next to the Connect button reflects the current state of the client:
+
+| Message | Meaning |
+|---|---|
+| `Loading WASM…` | The browser is fetching and instantiating `main.wasm` |
+| `Ready` | WASM loaded successfully; ready to connect |
+| `Connecting… (WebCodecs H.264 enabled)` | Connection in progress; H.264 hardware decoding is available |
+| `Connecting… (WebCodecs unavailable)` | Connection in progress; browser will use bitmap rendering |
+| `Connected (WebCodecs H.264)` | Session active with H.264 hardware decoding |
+| `Connected` | Session active with bitmap rendering |
+| `Error: …` | Connection or protocol error; message follows the colon |
+| `Closed` | Server closed the connection |
+| `Disconnected` | You clicked Disconnect |
+
+## Session persistence
+
+The client saves **Host**, **Port**, and **Domain** as browser cookies with a one-year expiry (`max-age=31536000`, `SameSite=Strict`). These values are restored automatically the next time you open the page.
+
+<Note>
+**Password is never saved.** Only Host, Port, and Domain are persisted to cookies. You must re-enter the password each time you connect.
+</Note>
+
+## Keyboard input
+
+All standard key presses are forwarded to the remote desktop as RDP scan codes. Both `keydown` and `keyup` events are captured so modifier keys (Shift, Ctrl, Alt, Win) work correctly.
+
+<Tip>
+The browser tab must have focus for keyboard events to be forwarded. If keys stop responding, click once inside the canvas area to restore focus.
+</Tip>
+
+## Mouse input
+
+The following mouse actions are forwarded to the RDP server:
+
+- **Move** — pointer position is tracked continuously
+- **Left / middle / right click** — button down and up events are both sent
+- **Scroll wheel** — vertical scroll is forwarded; scrolling up sends a positive wheel value, scrolling down a negative one
+
+Right-click context menus are suppressed in the browser so they do not interfere with the remote desktop.
+
+## H.264 decoding
+
+If the browser supports the [WebCodecs API](https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API) (`VideoDecoder` and `EncodedVideoChunk`), the client creates an H.264 decoder configured for the H.264 Baseline profile (`avc1.42E01E`) at the session's resolution. H.264 NAL unit data sent by the RDP server is decoded and drawn directly onto the canvas, taking advantage of hardware-accelerated video decoding.
+
+If WebCodecs is unavailable, the client falls back to bitmap rendering: raw pixel data is composited into an `ImageData` object and painted with `putImageData`.
+
+The status bar indicates which path is in use after the connection is established.
+
+## Audio
+
+Remote audio is streamed via the RDPSND protocol and played through the browser's Web Audio API as PCM audio. The `AudioContext` is created fresh on each connection — inside the click event handler for the Connect button — so the browser starts it in `running` state and does not apply autoplay suspension. When you disconnect, the `AudioContext` is closed and a new one will be created on the next connection.

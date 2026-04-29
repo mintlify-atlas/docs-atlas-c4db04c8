@@ -1,0 +1,134 @@
+---
+title: "grdpwasm architecture: WASM, proxy, and RDP server"
+description: "How the browser WASM module, the Go WebSocket-to-TCP proxy, and the remote RDP host form a three-tier pipeline — with data flow for bitmaps, H.264, and audio."
+---
+
+grdpwasm is a three-tier system: a Go WebAssembly binary runs inside the browser and speaks the RDP protocol, a lightweight Go proxy bridges WebSocket traffic to raw TCP, and a standard Windows RDP server sits at the far end. No browser plugin or native installation is needed — everything except the proxy is delivered as static files.
+
+```
+Browser (WASM) ──WebSocket──► proxy (Go) ──TCP──► RDP Server
+```
+
+## Browser WASM module
+
+**Source files:** `main.go`, `wasm_transport.go`, `audio.go`, `keymap.go`
+
+The WASM binary is compiled with `GOOS=js GOARCH=wasm` and loaded by the page via Go's standard `wasm_exec.js` runtime. It uses the `syscall/js` package to register global JavaScript functions and to call back into the page.
+
+### RDP client
+
+The core RDP implementation comes from `github.com/nakagami/grdp`. The WASM module creates a `grdp.RdpClient` and supplies a custom dialer that returns a `wsConn` (see below) instead of a plain TCP connection.
+
+### Registered global JS functions
+
+At startup, `main()` registers eight global functions that the HTML page can call at any time:
+
+| Function | Purpose |
+|---|---|
+| `rdpConnect` | Open a new RDP session |
+| `rdpDisconnect` | Close the current session |
+| `rdpMouseMove` | Send a pointer-move event |
+| `rdpMouseDown` | Send a button-press event |
+| `rdpMouseUp` | Send a button-release event |
+| `rdpMouseWheel` | Send a scroll event |
+| `rdpKeyDown` | Send a key-press scan code |
+| `rdpKeyUp` | Send a key-release scan code |
+
+### Event callbacks
+
+The WASM module calls the following JavaScript functions in response to RDP events. Your page must define all of these before calling `rdpConnect`:
+
+| Callback | Trigger |
+|---|---|
+| `rdpOnReady` | Desktop is ready for input |
+| `rdpOnH264` | H.264-encoded frame from the server (only when WebCodecs is available) |
+| `rdpAudioPlay` | PCM audio chunk from RDPSND |
+| `rdpOnError` | Connection or protocol error |
+| `rdpOnClose` | Graceful connection close |
+
+Bitmap rendering does not use a JS callback — bitmap rectangles are composited entirely inside the WASM module and written to the canvas via `ImageData`/`putImageData`.
+
+### wsConn — net.Conn over WebSocket
+
+`wsConn` (defined in `wasm_transport.go`) implements the standard `net.Conn` interface so that the `grdp` library needs no WASM-specific changes. Incoming WebSocket messages are delivered by the browser's `onmessage` event and buffered in a `chan []byte` with a capacity of 256. The `Read` method drains that channel, handling partial reads via an internal `pending` slice. `Write` copies data into a JS `Uint8Array` and calls `WebSocket.send()`.
+
+```go
+type wsConn struct {
+    ws      js.Value
+    readBuf chan []byte  // capacity 256
+    pending []byte
+    closed  bool
+}
+```
+
+Deadlines (`SetDeadline`, `SetReadDeadline`, `SetWriteDeadline`) are accepted but ignored — the browser event loop handles scheduling.
+
+## Proxy server
+
+**Source file:** `proxy/main.go`
+
+The proxy is a plain `net/http` server with two routes.
+
+### Routes
+
+| Route | Description |
+|---|---|
+| `GET /` | Serves the static assets from the `-static` directory (`index.html`, `main.wasm`, `wasm_exec.js`) |
+| `GET /ws?target=<host:port>` | Upgrades the connection to WebSocket and opens a TCP connection to `target`, then pipes data bidirectionally |
+
+The WebSocket upgrader sets `CheckOrigin` to always return `true`, so any page origin can connect — suitable for local/dev use.
+
+### Bidirectional pipe
+
+Two goroutines run concurrently:
+
+- **WebSocket → TCP**: reads binary (or text) WebSocket frames and writes them to the TCP connection.
+- **TCP → WebSocket**: reads from TCP in 32 KB chunks and sends each chunk as a binary WebSocket frame.
+
+Either goroutine terminating closes the session.
+
+## Browser frontend
+
+**Source file:** `static/index.html`
+
+The page bootstraps the WASM module, manages the `<canvas id="rdpCanvas">`, and wires up input events.
+
+<CardGroup cols={2}>
+  <Card title="WebCodecs H.264">
+    When `VideoDecoder` is available the page creates an H.264 decoder (codec `avc1.42E01E`, `optimizeForLatency: true`). Each `rdpOnH264` call feeds an `EncodedVideoChunk` into the decoder; the decoded `VideoFrame` is drawn onto the canvas via `drawImage`.
+  </Card>
+  <Card title="Web Audio PCM">
+    `AudioContext` is created inside the connect button's click handler so the browser starts it in a running state (avoiding autoplay suspension). `rdpAudioPlay` deinterleaves PCM samples into an `AudioBuffer` and schedules it 150 ms ahead of the current time to absorb WASM jitter.
+  </Card>
+  <Card title="Cookie persistence">
+    Host, port, and domain are saved to first-party cookies (`rdp_host`, `rdp_port`, `rdp_domain`) with a one-year expiry and `SameSite=Strict` so they survive page reloads.
+  </Card>
+  <Card title="Input capture">
+    `mousemove`, `mousedown`, `mouseup`, `wheel`, `keydown`, and `keyup` events on the canvas are forwarded to the corresponding WASM functions. `contextmenu` is suppressed to allow right-click to reach the RDP session.
+  </Card>
+</CardGroup>
+
+## Data flow
+
+### Bitmap update
+
+```
+RDP server → TCP → proxy → WebSocket → WASM → grdp
+  → OnBitmap → renderBitmaps → ImageData → putImageData → canvas
+```
+
+Bitmap rectangles arrive in the `OnBitmap` callback. `renderBitmaps` composites each rectangle onto an in-memory `image.RGBA` (`screenImage`), then copies the full pixel buffer into a `Uint8ClampedArray`, wraps it in a JS `ImageData`, and calls `ctx2d.putImageData`.
+
+### H.264 frame
+
+```
+RDP server → TCP → proxy → WebSocket → WASM → grdp
+  → OnH264Raw → JS rdpOnH264 → VideoDecoder → drawImage → canvas
+```
+
+### Audio
+
+```
+RDP server → RDPSND → WASM → OnAudio → playAudio (Go)
+  → rdpAudioPlay (JS) → AudioContext → speakers
+```

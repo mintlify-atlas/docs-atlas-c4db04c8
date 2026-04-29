@@ -1,0 +1,117 @@
+---
+title: "Secure grdpwasm with TLS, auth, and network controls"
+description: "Review grdpwasm's open origin policy and unencrypted credentials risks, then harden it with TLS termination using nginx or Caddy and optional Basic Auth."
+---
+
+grdpwasm is designed for convenience on a trusted local network. Before deploying it in any environment where untrusted parties can reach the proxy, review the considerations below and follow the hardening steps that apply to your setup.
+
+## Key security considerations
+
+### 1. The proxy accepts connections from any origin
+
+The WebSocket upgrader in `proxy/main.go` has `CheckOrigin` hard-coded to always return `true`. This means any web page — regardless of where it is hosted — can open a WebSocket connection to your proxy and tunnel traffic to any TCP host and port the proxy machine can reach.
+
+**Mitigation:** Run the proxy only on a trusted network, or add authentication (for example, HTTP Basic Auth at the reverse proxy layer) before exposing it outside localhost.
+
+### 2. Credentials travel over the WebSocket connection
+
+Username and password are passed from the browser to the proxy over WebSocket, and then forwarded over TCP to the RDP server. On a plain HTTP/WS connection, this traffic is unencrypted and can be intercepted by anyone on the same network.
+
+**Mitigation:** Terminate TLS at a reverse proxy so the browser communicates over HTTPS/WSS. See the configuration examples below.
+
+### 3. Password is never persisted by the client
+
+Only Host, Port, and Domain are saved as browser cookies. The password field is always cleared when the page loads, which reduces the risk of credentials being exposed through browser storage.
+
+<Warning>
+Do not expose the grdpwasm proxy directly to the public internet without adding authentication. The proxy has no built-in access control and will relay WebSocket connections to any TCP target it can reach.
+</Warning>
+
+## Putting the proxy behind a reverse proxy
+
+The recommended approach is to bind the proxy to `localhost` and let nginx or Caddy handle public traffic, TLS termination, and optionally authentication.
+
+### Recommended binding
+
+```bash
+./proxy/proxy -listen 127.0.0.1:8080 -static static
+```
+
+Binding to `127.0.0.1` instead of `0.0.0.0` ensures the proxy is unreachable except through the reverse proxy.
+
+<Note>
+The proxy serves both the static files and the WebSocket endpoint, so you only need a single upstream location in your reverse proxy configuration — no separate static file server is required.
+</Note>
+
+### nginx configuration
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name rdp.example.com;
+
+    ssl_certificate     /etc/ssl/certs/rdp.example.com.pem;
+    ssl_certificate_key /etc/ssl/private/rdp.example.com.key;
+
+    location / {
+        proxy_pass         http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+
+        # Required for WebSocket upgrade
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+
+server {
+    listen 80;
+    server_name rdp.example.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+The `proxy_read_timeout` and `proxy_send_timeout` values are set to one hour to keep long RDP sessions alive through the proxy.
+
+### Caddy configuration
+
+```caddy
+rdp.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Caddy automatically provisions a TLS certificate via Let's Encrypt and handles WebSocket upgrade headers. The single `reverse_proxy` directive is sufficient for both the static files and the `/ws` WebSocket endpoint.
+
+## Adding HTTP Basic Auth (nginx)
+
+To require a username and password before the proxy can be reached, add Basic Auth at the nginx layer:
+
+```nginx
+location / {
+    auth_basic           "grdpwasm";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+
+    proxy_pass         http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header   Upgrade    $http_upgrade;
+    proxy_set_header   Connection "upgrade";
+}
+```
+
+Generate the password file with `htpasswd`:
+
+```bash
+htpasswd -c /etc/nginx/.htpasswd your-username
+```
+
+<Tip>
+Combine TLS termination with Basic Auth so that credentials are never transmitted in plain text.
+</Tip>

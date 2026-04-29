@@ -1,0 +1,76 @@
+---
+title: "grdpwasm proxy server: CLI flags and HTTP endpoints"
+description: "Reference for the grdpwasm proxy binary: the -listen and -static flags, the GET / and GET /ws endpoints, the required target query parameter, and log levels."
+---
+
+The grdpwasm proxy is a small Go HTTP server that bridges browser WebSocket connections to the RDP server's raw TCP port. It also serves the static browser assets (`index.html`, `main.wasm`, `wasm_exec.js`). Run it with `go run ./proxy` or build it with `go build -o proxy ./proxy`.
+
+## Flags
+
+<ParamField path="-listen" type="string">
+  TCP address the server binds to. Accepts `host:port` or `:port` format. Defaults to `:8080`.
+</ParamField>
+
+<ParamField path="-static" type="string">
+  Filesystem path to the directory containing the browser assets: `index.html`, `main.wasm`, and `wasm_exec.js`. Defaults to `static` (relative to the working directory).
+</ParamField>
+
+## HTTP endpoints
+
+### `GET /`
+
+Serves files from the directory specified by `-static`. A request for `/` returns `index.html`; requests for `/main.wasm` and `/wasm_exec.js` return those files directly.
+
+### `GET /ws`
+
+Upgrades the HTTP connection to a WebSocket and opens a TCP connection to the RDP server, then pipes data bidirectionally until either side closes.
+
+<ParamField path="target" type="string" required>
+  The RDP server address in `host:port` format. Example: `192.168.1.10:3389`. If omitted the server returns `400 Bad Request`.
+</ParamField>
+
+<Note>
+  The upgrader sets `CheckOrigin` to always return `true`. This is intentional for local and development deployments where the page and proxy share the same origin. For production, consider adding origin validation.
+</Note>
+
+## Logging
+
+The proxy uses Go's structured `slog` package. Log levels:
+
+| Level | Events |
+|---|---|
+| `Info` | New WebSocket-to-TCP connection established (`proxying target=… remote=…`) |
+| `Error` | WebSocket upgrade failure; TCP dial failure |
+| `Debug` | Proxy goroutine exit reason |
+
+## Example invocations
+
+Start the proxy on the default port, serving assets from the `static` directory:
+
+```bash
+go run ./proxy
+```
+
+Listen on a custom address and point to a pre-built asset directory:
+
+```bash
+go run ./proxy -listen :9090 -static /var/www/grdpwasm
+```
+
+Build a binary first, then run it:
+
+```bash
+go build -o proxy/proxy ./proxy
+./proxy/proxy -listen :8080 -static ./static
+```
+
+Connect to a specific RDP server through the WebSocket endpoint:
+
+```bash
+# The browser page calls this automatically; you can also test it with wscat:
+wscat --connect "ws://localhost:8080/ws?target=192.168.1.10:3389"
+```
+
+<Tip>
+  When running behind a reverse proxy (nginx, Caddy, etc.) make sure WebSocket upgrade headers (`Upgrade`, `Connection`) are forwarded. The `-listen` flag only needs to match the address your reverse proxy forwards to.
+</Tip>

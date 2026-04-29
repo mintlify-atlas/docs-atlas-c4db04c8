@@ -1,0 +1,70 @@
+---
+title: "Run and configure the grdpwasm WebSocket proxy server"
+description: "Start the grdpwasm proxy server, learn its two CLI flags and HTTP routes, and configure it behind nginx or Caddy for HTTPS and WSS support."
+---
+
+The proxy server (`proxy/proxy`) does two things: it serves the static files that make up the browser client, and it bridges WebSocket connections from the browser to a raw TCP port on the RDP server. Because browsers cannot open raw TCP sockets, this bridge is the only way for the WASM client to reach an RDP host.
+
+## Starting the proxy
+
+```bash
+./proxy/proxy -listen :8080 -static static
+```
+
+Or use the Makefile shortcut, which builds everything first:
+
+```bash
+make serve
+```
+
+Then open **http://localhost:8080** in your browser.
+
+## Flag reference
+
+| Flag | Default | Description |
+|---|---|---|
+| `-listen` | `:8080` | Address and port the HTTP server binds to |
+| `-static` | `static` | Directory from which static files are served |
+
+### Examples
+
+**Listen on a specific interface:**
+
+```bash
+./proxy/proxy -listen 127.0.0.1:8080 -static static
+```
+
+**Use a different port:**
+
+```bash
+./proxy/proxy -listen :9090 -static static
+```
+
+**Serve static files from a custom path:**
+
+```bash
+./proxy/proxy -listen :8080 -static /var/www/grdpwasm
+```
+
+## HTTP routes
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` (and any other path) | Serves files from the `-static` directory via `http.FileServer` |
+| `GET` | `/ws?target=host:port` | Upgrades to WebSocket and proxies traffic to `host:port` over TCP |
+
+The `/ws` endpoint requires a `target` query parameter in `host:port` form. If `target` is missing, the server returns `400 Bad Request`.
+
+## Origin checking
+
+<Warning>
+The proxy's WebSocket upgrader has `CheckOrigin` hard-coded to always return `true`, which means it accepts WebSocket upgrade requests from **any origin**. Do not expose the proxy directly to the public internet. See the [security guide](/guides/security) for how to add TLS and restrict access.
+</Warning>
+
+## TLS / HTTPS
+
+The proxy speaks plain HTTP and WS. It has no built-in TLS support. To serve the application over HTTPS/WSS — which is required on many modern browsers for certain APIs — place a reverse proxy such as nginx or Caddy in front of it.
+
+The browser client automatically selects `wss://` when the page is loaded over `https://`, so no client-side configuration is needed once TLS termination is in place.
+
+See the [security guide](/guides/security) for example nginx and Caddy configurations.

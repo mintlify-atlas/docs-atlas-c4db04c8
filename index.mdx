@@ -1,133 +1,64 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
-icon: 'star'
+title: "grdpwasm: Browser-based RDP client powered by Go WASM"
+description: "grdpwasm lets you connect to Windows Remote Desktop servers directly from your browser — no plugins, no native installs, just Go compiled to WebAssembly."
 ---
 
-## Setting up
+grdpwasm is an open-source web RDP client that runs the [grdp](https://github.com/nakagami/grdp) protocol stack compiled to WebAssembly entirely inside your browser. A small Go proxy server bridges the browser's WebSocket connection to the RDP server's TCP port, giving you a full remote desktop in any modern browser tab.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build and run grdpwasm in under five minutes — from clone to connected desktop.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Architecture" icon="diagram-project" href="/reference/architecture">
+    Understand how the browser WASM module, proxy server, and RDP host fit together.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Building" icon="hammer" href="/guides/building">
+    Step-by-step instructions for compiling the WASM binary and proxy server.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="JavaScript API" icon="code" href="/reference/javascript-api">
+    Full reference for the global functions exposed by the WASM module to JavaScript.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## How it works
 
-Everything you need to create world-class documentation.
+```
+Browser (WASM) ──WebSocket──► proxy (Go) ──TCP──► RDP Server
+```
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+Because browsers cannot open raw TCP sockets, grdpwasm ships a lightweight Go proxy that upgrades WebSocket connections from the browser and forwards them as plain TCP to your RDP host. The WASM module runs the complete RDP protocol stack — authentication, bitmap rendering, H.264 decoding, audio playback, and input forwarding — without any server-side screen capture.
 
-## Make your content agent ready
+## Key features
 
-Make your docs work for humans and AI agents alike.
+<CardGroup cols={2}>
+  <Card title="No plugins required" icon="puzzle-piece">
+    Runs entirely in the browser using standard WebAssembly and Web APIs.
+  </Card>
+  <Card title="H.264 via WebCodecs" icon="film">
+    Hardware-accelerated video decoding using the browser's native WebCodecs API.
+  </Card>
+  <Card title="Remote audio" icon="volume-high">
+    RDPSND audio streamed and decoded using the Web Audio API in real time.
+  </Card>
+  <Card title="Full keyboard and mouse" icon="keyboard">
+    All keys, mouse buttons, and scroll wheel forwarded using RDP scan codes.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Prompt component"
-    icon="robot"
-    href="/agent-ready/prompt"
-  >
-    Embed shareable AI prompts readers can copy or open in Cursor.
-  </Card>
-  <Card
-    title="Visibility"
-    icon="eye"
-    href="/agent-ready/visibility"
-  >
-    Show different content to humans and agents reading your docs.
-  </Card>
-  <Card
-    title="Contextual menu"
-    icon="bolt"
-    href="/agent-ready/contextual"
-  >
-    Give readers one-click access to Claude, ChatGPT, Cursor, and more.
-  </Card>
-  <Card
-    title="AI coding tools"
-    icon="wand-magic-sparkles"
-    href="/ai-tools/claude-code"
-  >
-    Set up Claude Code, Cursor, or Windsurf with Mintlify's skill.
-  </Card>
-</Columns>
+## Get started
 
-## Need inspiration?
+<Steps>
+  <Step title="Clone and build">
+    Clone the repository and run `make all` to produce the WASM binary, the Go runtime JS shim, and the proxy server binary.
+  </Step>
+  <Step title="Start the proxy">
+    Run `./proxy/proxy -listen :8080 -static static` to start the WebSocket-to-TCP proxy and static file server.
+  </Step>
+  <Step title="Open the browser">
+    Navigate to `http://localhost:8080`, fill in your RDP host details, and click **Connect**.
+  </Step>
+</Steps>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+  grdpwasm requires Go 1.24 or later and a reachable RDP server. See the [Quickstart](/quickstart) for full prerequisites.
+</Note>

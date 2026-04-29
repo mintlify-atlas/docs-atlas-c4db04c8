@@ -1,0 +1,63 @@
+{
+  "projectType": "general",
+  "projectName": "grdpwasm",
+  "projectDescription": "A web-based RDP client that runs Go compiled to WebAssembly in the browser, bridging WebSocket connections to a remote Windows desktop via a lightweight Go proxy.",
+  "theme": "aspen",
+  "primaryColor": "#e94560",
+  "lightColor": "#16213e",
+  "darkColor": "#0f3460",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/building",
+          "guides/running-the-proxy",
+          "guides/connecting",
+          "guides/security"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/architecture",
+          "reference/proxy-flags",
+          "reference/javascript-api",
+          "reference/keyboard-mapping"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Browser-native RDP client — no plugins or extensions required",
+    "Go compiled to WebAssembly for RDP protocol handling in the browser",
+    "Lightweight Go proxy bridges WebSocket to raw TCP for the RDP server",
+    "Full keyboard and mouse support with RDP scan code mapping",
+    "Remote audio streaming via RDPSND decoded with the Web Audio API",
+    "H.264 hardware-accelerated video decoding via WebCodecs API",
+    "Connection settings persisted via browser cookies"
+  ],
+  "publicApiSurface": [
+    "rdpConnect(proxyWsURL, host, port, domain, user, password, width, height)",
+    "rdpDisconnect()",
+    "rdpMouseMove(x, y)",
+    "rdpMouseDown(button, x, y)",
+    "rdpMouseUp(button, x, y)",
+    "rdpMouseWheel(delta)",
+    "rdpKeyDown(code)",
+    "rdpKeyUp(code)",
+    "rdpOnReady() [callback]",
+    "rdpOnError(msg) [callback]",
+    "rdpOnClose() [callback]",
+    "rdpOnH264(destX, destY, w, h, isKey, data) [callback]",
+    "rdpAudioPlay(sampleRate, channels, bitsPerSample, data) [callback]",
+    "proxy -listen <addr> -static <dir>"
+  ]
+}
